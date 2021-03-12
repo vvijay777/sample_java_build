@@ -1,0 +1,80 @@
+
+        stage('Download build artifacts (BAMS)') {
+            when {
+                // Skipped by default for demo purposes
+                expression { return true }
+            }
+
+            steps {
+                script {
+                    // adjust the uploadSpec with proper values for the following keys:
+                    //   pattern - name of the file(s) to upload, handles wildcards - "*.jar" - will publish all JAR files
+                    //   target - existing path in a BAMS repository - artifact(s) will be uploaded there
+                    //   props - key/value pairs to add to Artifactory metadata
+                    //   excludePatterns - filename patterns to ignore
+                    //   recursive - if we should also search subdirectories for files matching the pattern
+                    //
+                    // see https://www.jfrog.com/confluence/display/RTF/Using+File+Specs#UsingFileSpecs-UploadSpecSchema for full reference
+
+                    def server = Artifactory.server 'bams'
+                    echo 'Preparing the BAMS Download spec'
+					def downloadSpec = """{
+					"files": [{
+                            "pattern": "default.generic.cloud/contributions-core/CASE/test-API/*.zip",
+                            "target": "$workspace/eu-west-1/barapi-DEV/"
+                           }]
+                    }"""
+                    echo "Executing the Download from Artifactory"
+                    server.download spec: downloadSpec
+                    sh " cp $workspace/eu-west-1/test-DEV/contributions-core/CASE/test-API/*.zip $workspace/eu-west-1/test-DEV/"
+                    sh " rm $workspace/eu-west-1/test-DEV/contributions-core/CASE/test-API/*.zip"
+                   
+            }
+        }
+        }
+
+
+
+
+
+
+
+
+         stage("Upload to ECR") {
+        if (env.BRANCH_NAME == 'master') {
+            updateGitlabCommitStatus name: 'Upload to ECR', state: 'running'
+
+            sh '$(aws ecr get-login --no-include-email --region eu-west-1)'
+            sh 'docker build -t servicename .'
+            sh 'docker tag xxx/servicename:latest'
+            sh 'docker push xxxxx.dkr.ecr.eu-west-1.amazonaws.com/servicename:latest'
+
+            updateGitlabCommitStatus name: 'Upload to ECR', state: 'success'
+        } else {
+            print 'SKIPPED'
+        }
+
+    }
+    stage("Deploy on sandbox") {
+        if (env.BRANCH_NAME == 'master') {
+
+            updateGitlabCommitStatus name: 'Deploy to sandbox', state: 'running'
+            sh '''
+# best practice is to get rid of all indent in sh block
+taskId=$(aws --profile=dev ecs list-tasks --cluster test-cluster --service-name test-aaa-service-alpha --query "taskArns[${index}]" --output text)
+aws --profile=dev ecs stop-task --cluster test-px-ecs-cluster --task $taskId
+'''
+            updateGitlabCommitStatus name: 'Deploy to sandbox', state: 'success'
+        }
+    }
+    stage("Deploy on sandbox-dev2") {
+        if (env.BRANCH_NAME == 'master') {
+            updateGitlabCommitStatus name: 'Deploy to sandbox', state: 'running'
+            sh '''
+# best practice is to get rid of all indent in sh block
+taskId=$(aws --profile=dev ecs list-tasks --cluster test-px-ecs-cluster-dev2 --service-name test-aaa-service-dev2 --query "taskArns[${index}]" --output text)
+aws --profile=dev ecs stop-task --cluster test-px-ecs-cluster-dev2 --task $taskId
+'''
+            updateGitlabCommitStatus name: 'Deploy to sandbox', state: 'success'
+        }
+    }
